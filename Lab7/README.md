@@ -1,16 +1,15 @@
-# Анализ данных сетевого трафика с использованием аналитической
-in-memory СУБД DuckDB
+# Анализ данных сетевого трафика при помощи библиотеки Arrow
 
 
 ## Цель
 
-1.  Изучить возможности СУБД DuckDB для обработки и анализ больших
-    данных
+1.  Изучить возможности технологии Apache Arrow для обработки и анализ
+    больших данных
 
-2.  Получить навыки применения DuckDB совместно с языком
-    программирования R
+2.  Получить навыки применения Arrow совместно с языком программирования
+    R
 
-3.  Получить навыки анализаметаинфомации о сетевом трафике
+3.  Получить навыки анализа метаинфомации о сетевом трафике
 
 4.  Получить навыки применения облачных технологий хранения, подготовки
     и анализа данных: Yandex Object Storage, Rstudio Server.
@@ -40,6 +39,38 @@ in-memory СУБД DuckDB
 
 ## Содержание ЛР
 
+Подготовка данных:
+
+``` r
+library(dplyr, warn.conflicts = FALSE)
+library(arrow, warn.conflicts = FALSE)
+```
+
+    Some features are not enabled in this build of Arrow. Run `arrow_info()` for more information.
+
+``` r
+library(tidyverse)
+```
+
+    ── Attaching core tidyverse packages ──────────────────────── tidyverse 2.0.0 ──
+    ✔ forcats   1.0.0     ✔ readr     2.1.5
+    ✔ ggplot2   3.5.1     ✔ stringr   1.5.1
+    ✔ lubridate 1.9.3     ✔ tibble    3.2.1
+    ✔ purrr     1.0.2     ✔ tidyr     1.3.1
+
+    ── Conflicts ────────────────────────────────────────── tidyverse_conflicts() ──
+    ✖ lubridate::duration() masks arrow::duration()
+    ✖ dplyr::filter()       masks stats::filter()
+    ✖ dplyr::lag()          masks stats::lag()
+    ℹ Use the conflicted package (<http://conflicted.r-lib.org/>) to force all conflicts to become errors
+
+``` r
+df <- read_parquet('tm_data.pqt')
+df <- df %>%
+  filter(str_detect(src, "^12.") | str_detect(src, "^13.") | str_detect(src, "^14."))  %>%
+  filter(!str_detect(dst, "^12.") & !str_detect(dst, "^13.") & !str_detect(dst, "^14.")) 
+```
+
 ### Задание 1
 
 Важнейшие документы с результатами нашей исследовательской деятельности
@@ -50,26 +81,17 @@ in-memory СУБД DuckDB
 IP-адрес.
 
 ``` r
-library(duckdb)
+res1 <- df %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes)) %>%
+  arrange(desc(traffic)) %>%
+  select(src) %>% collect()
+print(head(res1, 1))
 ```
 
-    Loading required package: DBI
-
-``` r
-con <- dbConnect(duckdb::duckdb())
-
-
-df <- dbGetQuery(con,
-    "SELECT src FROM (SELECT src, SUM(bytes) AS bytesSum
-    FROM read_parquet('tm_data.pqt')
-    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%')
-    GROUP BY src ORDER BY bytesSum DESC LIMIT 1);")
-
-print(df)
-```
-
-               src
+    # A tibble: 1 × 1
+      src         
+      <chr>       
     1 13.37.84.125
 
 ### Задание 2
@@ -94,41 +116,12 @@ install.packages("ggplot2")
 Подготовка данных:
 
 ``` r
-library(duckdb)
 library(dplyr)
-```
-
-
-    Attaching package: 'dplyr'
-
-    The following objects are masked from 'package:stats':
-
-        filter, lag
-
-    The following objects are masked from 'package:base':
-
-        intersect, setdiff, setequal, union
-
-``` r
 library(ggplot2)
 library(lubridate)
-```
 
-
-    Attaching package: 'lubridate'
-
-    The following objects are masked from 'package:base':
-
-        date, intersect, setdiff, union
-
-``` r
-con <- dbConnect(duckdb::duckdb())
-
-df <- dbGetQuery(con,
-    "SELECT *
-    FROM read_parquet('tm_data.pqt')
-    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%' AND src NOT LIKE '13.37.84.125');")
+df <- df %>%
+  filter(!str_detect(src, "^13.37.84.125"))
 
 dftime <- df %>%
       select(timestamp, src, dst, bytes) %>%
@@ -143,30 +136,26 @@ dfdatetime <- df %>%
 bytraffic <- dftime %>%
       group_by(time) %>%
       summarise(traffic = sum(bytes), count = n()) %>% 
-      arrange(desc(traffic))
+      arrange(desc(traffic)) %>% collect()
 
-bycount <- bytraffic %>% arrange(desc(count))
+bycount <- bytraffic %>% arrange(desc(count)) %>% collect()
 
-avgPerHost <- bytraffic %>% mutate(avg = traffic/count) %>% arrange(desc(avg))
+avgPerHost <- bytraffic %>% mutate(avg = traffic/count) %>% arrange(desc(avg)) %>% collect()
 
 res <- dftime %>%
       filter(time < 16) %>% 
       group_by(src) %>%
-      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
-      #mutate(avg = traffic / num) %>%
-      arrange(desc(traffic))
-      #top_n(10)
+      summarise(traffic = sum(bytes)) %>%
+      arrange(desc(traffic)) %>% collect()
 
 res7 <- dftime %>%
       filter(time == 7) %>% 
       group_by(src) %>%
-      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
-      #mutate(avg = traffic / num) %>%
-      arrange(desc(traffic))
-      #top_n(10)
+      summarise(traffic = sum(bytes)) %>%
+      arrange(desc(traffic)) %>% collect()
 
 res1255 <- dfdatetime %>%
-      filter(src == '12.55.77.96')
+      filter(src == '12.55.77.96') %>% collect()
 ```
 
 Анализ данных:
@@ -177,7 +166,7 @@ ggplot(data = bytraffic, aes(x = time, y = traffic)) +
   geom_point()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-5-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-6-1.png)
 
 ``` r
 ggplot(data = bytraffic, aes(x = time, y = count)) + 
@@ -185,7 +174,7 @@ ggplot(data = bytraffic, aes(x = time, y = count)) +
   geom_point()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-6-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-7-1.png)
 
 Так как с 16 до 24 объем трафика и количество запросов стабильно высоки
 с сравнении с другими часами, этот интервал является рабочими часами.
@@ -194,7 +183,7 @@ ggplot(data = bytraffic, aes(x = time, y = count)) +
 ggplot(head(res, 10), aes(traffic, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-7-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-8-1.png)
 
 Заметно, что в нерабочие часы трафик наибольший у 12.55.77.96
 
@@ -204,7 +193,7 @@ ggplot(data = avgPerHost, aes(x = time, y = avg)) +
   geom_point()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-8-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-9-1.png)
 
 Так как в 7 часов был значительный всплеск среднего трафика на хост, что
 является аномалией, скорее всего именно в этот период происходила утечка
@@ -214,7 +203,7 @@ ggplot(data = avgPerHost, aes(x = time, y = avg)) +
 ggplot(head(res7, 10), aes(traffic, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-9-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-10-1.png)
 
 Заметно, что в 7 часов трафик наибольший у 12.55.77.96.
 
@@ -224,7 +213,7 @@ ggplot(data = res1255, aes(x = time, y = bytes)) +
   geom_point()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-10-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-11-1.png)
 
 Каждый день у 12.55.77.96 был всплеск трафика в 7 утра. Таким образом,
 именно у этой системы был настроен cron для экспорта содержимого
@@ -242,19 +231,12 @@ ggplot(data = res1255, aes(x = time, y = bytes)) +
 Подготовка данных:
 
 ``` r
-library(duckdb)
 library(dplyr)
 library(ggplot2)
 library(lubridate)
 
-con <- dbConnect(duckdb::duckdb())
-
-df <- dbGetQuery(con,
-  "SELECT *
-  FROM read_parquet('tm_data.pqt')
-  WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-  AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%') 
-  AND (src NOT LIKE '13.37.84.125' AND src NOT LIKE '12.55.77.96');")
+df <- df %>%
+  filter(src != '12.55.77.96')
 ```
 
 ``` r
@@ -266,7 +248,7 @@ dfport <- df %>%
 dfportstat <- dfport %>%
   group_by(port) %>%
   summarise(med = median(bytes), max = max(bytes), razn = max - med) %>%
-  arrange(desc(razn))
+  arrange(desc(razn)) %>% collect()
 
 print(dfportstat)
 ```
@@ -290,7 +272,7 @@ print(dfportstat)
 ggplot(data = dfportstat, aes(x = port, y = razn)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-14-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-15-1.png)
 
 Скорее всего подозрительным портом является один из первой десятки тех,
 у которых нибольшая разница между медианой и максимальным значением
@@ -304,18 +286,18 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-15-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-16-1.png)
 
 ``` r
 ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-16-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-17-1.png)
 
 Для прота 37 (топ-1) замечена аномальная активность на src =
 14.31.207.42, но разница со вторым местом src = 14.42.60.94 минимальна.
@@ -328,18 +310,18 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-17-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-18-1.png)
 
 ``` r
 ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-18-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-19-1.png)
 
 Для порта 39 (топ-2) замечена аномальная активность: src = 13.36.102.77.
 
@@ -351,18 +333,18 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-19-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-20-1.png)
 
 ``` r
 ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-20-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-21-1.png)
 
 Для порта 105 (топ-3) замечена аномальная активность: src =
 14.31.107.42.
@@ -375,18 +357,18 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-21-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-22-1.png)
 
 ``` r
 ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-22-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-23-1.png)
 
 Для порта 40 (топ-4) замечена аномальная активность: src = 13.41.85.73.
 
@@ -398,18 +380,18 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-23-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-24-1.png)
 
 ``` r
 ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 ```
 
-![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-24-1.png)
+![](README.markdown_strict_files/figure-markdown_strict/unnamed-chunk-25-1.png)
 
 Для порта 75 (топ-5) не замечена аномальная активность.
 
@@ -420,8 +402,10 @@ ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 
 ## Оценка результатов
 
-Задача выполнена при помощи DuckDB, удалось познакомится и изучить возможности СУБД DuckDB для анализа больших данных.
+Задача выполнена при помощи Apache Arrow, удалось познакомится с
+функционалом Arrow для анализа больших данных.
 
 ## Вывод
 
-В данной работе успешно удалось изучить возможности DuckDB для анализа данных сетевой активности в сегментированной корпоративной сети.
+В данной работе успешно удалось изучить возможности Apache Arrow для
+анализа данных сетевой активности в сегментированной корпоративной сети.

@@ -1,15 +1,15 @@
 ---
-title: " Анализ данных сетевого трафика с использованием аналитической in-memory СУБД DuckDB"
+title: "Анализ данных сетевого трафика при помощи библиотеки Arrow"
 format: md
 ---
 
 ## Цель
 
-1.  Изучить возможности СУБД DuckDB для обработки и анализ больших данных
+1.  Изучить возможности технологии Apache Arrow для обработки и анализ больших данных
 
-2.  Получить навыки применения DuckDB совместно с языком программирования R
+2.  Получить навыки применения Arrow совместно с языком программирования R
 
-3.  Получить навыки анализаметаинфомации о сетевом трафике
+3.  Получить навыки анализа метаинфомации о сетевом трафике
 
 4.  Получить навыки применения облачных технологий хранения, подготовки и анализа данных: Yandex Object Storage, Rstudio Server.
 
@@ -37,25 +37,31 @@ format: md
 
 ## Содержание ЛР
 
+Подготовка данных:
+
+```{r}
+library(dplyr, warn.conflicts = FALSE)
+library(arrow, warn.conflicts = FALSE)
+library(tidyverse)
+df <- read_parquet('tm_data.pqt')
+df <- df %>%
+  filter(str_detect(src, "^12.") | str_detect(src, "^13.") | str_detect(src, "^14."))  %>%
+  filter(!str_detect(dst, "^12.") & !str_detect(dst, "^13.") & !str_detect(dst, "^14.")) 
+```
+
 ### Задание 1
 
 Важнейшие документы с результатами нашей исследовательской деятельности в области создания вакцин скачиваются в виде больших заархивированных дампов. Один из хостов в нашей сети используется для пересылки этой информации – он пересылает гораздо больше информации на внешние ресурсы в Интернете, чем остальные компьютеры нашей сети. Определите его IP-адрес.
 
 ```{r}
-library(duckdb)
-
-con <- dbConnect(duckdb::duckdb())
-
-
-df <- dbGetQuery(con,
-    "SELECT src FROM (SELECT src, SUM(bytes) AS bytesSum
-    FROM read_parquet('tm_data.pqt')
-    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%')
-    GROUP BY src ORDER BY bytesSum DESC LIMIT 1);")
-
-print(df)
+res1 <- df %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes)) %>%
+  arrange(desc(traffic)) %>%
+  select(src) %>% collect()
+print(head(res1, 1))
 ```
+
 
 ### Задание 2
 
@@ -72,18 +78,12 @@ install.packages("ggplot2")
 Подготовка данных:
 
 ```{r}
-library(duckdb)
 library(dplyr)
 library(ggplot2)
 library(lubridate)
 
-con <- dbConnect(duckdb::duckdb())
-
-df <- dbGetQuery(con,
-    "SELECT *
-    FROM read_parquet('tm_data.pqt')
-    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%' AND src NOT LIKE '13.37.84.125');")
+df <- df %>%
+  filter(!str_detect(src, "^13.37.84.125"))
 
 dftime <- df %>%
       select(timestamp, src, dst, bytes) %>%
@@ -98,30 +98,26 @@ dfdatetime <- df %>%
 bytraffic <- dftime %>%
       group_by(time) %>%
       summarise(traffic = sum(bytes), count = n()) %>% 
-      arrange(desc(traffic))
+      arrange(desc(traffic)) %>% collect()
 
-bycount <- bytraffic %>% arrange(desc(count))
+bycount <- bytraffic %>% arrange(desc(count)) %>% collect()
 
-avgPerHost <- bytraffic %>% mutate(avg = traffic/count) %>% arrange(desc(avg))
+avgPerHost <- bytraffic %>% mutate(avg = traffic/count) %>% arrange(desc(avg)) %>% collect()
 
 res <- dftime %>%
       filter(time < 16) %>% 
       group_by(src) %>%
-      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
-      #mutate(avg = traffic / num) %>%
-      arrange(desc(traffic))
-      #top_n(10)
+      summarise(traffic = sum(bytes)) %>%
+      arrange(desc(traffic)) %>% collect()
 
 res7 <- dftime %>%
       filter(time == 7) %>% 
       group_by(src) %>%
-      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
-      #mutate(avg = traffic / num) %>%
-      arrange(desc(traffic))
-      #top_n(10)
+      summarise(traffic = sum(bytes)) %>%
+      arrange(desc(traffic)) %>% collect()
 
 res1255 <- dfdatetime %>%
-      filter(src == '12.55.77.96')
+      filter(src == '12.55.77.96') %>% collect()
 
 ```
 
@@ -171,20 +167,12 @@ ggplot(data = res1255, aes(x = time, y = bytes)) +
 Подготовка данных:
 
 ```{r}
-library(duckdb)
 library(dplyr)
 library(ggplot2)
 library(lubridate)
 
-con <- dbConnect(duckdb::duckdb())
-
-df <- dbGetQuery(con,
-  "SELECT *
-  FROM read_parquet('tm_data.pqt')
-  WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
-  AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%') 
-  AND (src NOT LIKE '13.37.84.125' AND src NOT LIKE '12.55.77.96');")
-
+df <- df %>%
+  filter(src != '12.55.77.96')
 ```
 
 ```{r}
@@ -196,7 +184,7 @@ dfport <- df %>%
 dfportstat <- dfport %>%
   group_by(port) %>%
   summarise(med = median(bytes), max = max(bytes), razn = max - med) %>%
-  arrange(desc(razn))
+  arrange(desc(razn)) %>% collect()
 
 print(dfportstat)
 ```
@@ -213,7 +201,7 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
@@ -230,7 +218,7 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
@@ -247,7 +235,7 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
@@ -264,7 +252,7 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
@@ -282,7 +270,7 @@ dfportN <- dfport %>%
   filter(port == p) %>%
   group_by(src) %>%
   summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
-  arrange(desc(avg))
+  arrange(desc(avg)) %>% collect()
 
 ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
 ```
@@ -298,8 +286,8 @@ ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
 
 ## Оценка результатов
 
-Задача выполнена при помощи DuckDB, удалось познакомится и изучить возможности СУБД DuckDB для анализа больших данных.
+Задача выполнена при помощи Apache Arrow, удалось познакомится с функционалом Arrow для анализа больших данных.
 
 ## Вывод
 
-В данной работе успешно удалось изучить возможности DuckDB для анализа данных сетевой активности в сегментированной корпоративной сети.
+В данной работе успешно удалось изучить возможности Apache Arrow для анализа данных сетевой активности в сегментированной корпоративной сети.
