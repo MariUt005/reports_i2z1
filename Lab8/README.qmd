@@ -1,101 +1,305 @@
 ---
-title: "Использование технологии Yandex Query для анализа данных сетевой активности"
+title: " Анализ данных сетевого трафика с использованием аналитической in-memory СУБД DuckDB"
 format: md
 ---
 
 ## Цель
 
-1.  Изучить возможности технологии Yandex Query для анализа структурированных наборов данных
-2.  Получить навыки построения аналитического пайплайна для анализа данных с помощью сервисов Yandex Cloud
-3.  Закрепить практические навыки использования SQL для анализа данных сетевойактивности в сегментированной корпоративной сети
+1.  Изучить возможности СУБД DuckDB для обработки и анализ больших данных
+
+2.  Получить навыки применения DuckDB совместно с языком программирования R
+
+3.  Получить навыки анализаметаинфомации о сетевом трафике
+
+4.  Получить навыки применения облачных технологий хранения, подготовки и анализа данных: Yandex Object Storage, Rstudio Server.
 
 ## ️Исходные данные
 
-1.  Ноутбук c Windows 11 и установленным Git, R и RStudio
-2.  Доступ к Yandex Query
+1.  Ноутбук c Windows 11 и установленным Git, R и RStudio, ssh
+
+2.  Доступ к RStudio Server
 
 ## ️Ход работы
 
-1.  Проверить доступность данных в Yandex Object Storage
+1.  Подключиться по ssh к удаленному серверу и установить сетевой туннель
 
-2.  Подключить бакет как источник данных для Yandex Query
+2.  Подключиться к RStudio Server
 
-3.  Анализ. Решение следующих заданий:
+3.  Решение заданий:
 
-    1.  Известно, что IP адреса внутренней сети начинаются с октетов, принадлежащих интервалу \[12-14\]. Определите количество хостов внутренней сети, представленных в датасете.
-    2.  Определите суммарный объем исходящего трафика
-    3.  Определите суммарный объем входящего трафика
+    1.  Надите утечку данных из Вашей сети.
+
+    2.  Надите утечку данных 2
+
+    3.  Надите утечку данных 3
 
 4.  Оформить отчет в соответствии с шаблоном
 
 ## Содержание ЛР
 
-### Шаг 1
+### Задание 1
 
-Данные в Yandex Object Storage доступны по ссылке <https://storage.yandexcloud.net/arrow-datasets>
+Важнейшие документы с результатами нашей исследовательской деятельности в области создания вакцин скачиваются в виде больших заархивированных дампов. Один из хостов в нашей сети используется для пересылки этой информации – он пересылает гораздо больше информации на внешние ресурсы в Интернете, чем остальные компьютеры нашей сети. Определите его IP-адрес.
 
-![](images/clipboard-1369615381.png)
+```{r}
+library(duckdb)
 
-### Шаг 2
+con <- dbConnect(duckdb::duckdb())
 
-Соединение создано
 
-![](images/clipboard-788294772.png)
+df <- dbGetQuery(con,
+    "SELECT src FROM (SELECT src, SUM(bytes) AS bytesSum
+    FROM read_parquet('tm_data.pqt')
+    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
+    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%')
+    GROUP BY src ORDER BY bytesSum DESC LIMIT 1);")
 
-Создание привязки:
+print(df)
+```
 
-![](images/clipboard-3598576721.png)
+### Задание 2
 
-Тестирование соединения и привязки:
+Другой атакующий установил автоматическую задачу в системном планировщике cron для экспорта содержимого внутренней wiki системы. Эта система генерирует большое количество трафика в нерабочие часы, больше чем остальные хосты.
 
-![](images/clipboard-806725135.png)
+Определите IP этой системы. Известно, что ее IP адрес отличается от нарушителя из предыдущей задачи.
 
-### Шаг 3
+Установка ggplot2:
 
-Анализ
+```{r}
+install.packages("ggplot2")
+```
 
-1.  Известно, что IP адреса внутренней сети начинаются с октетов, принадлежащих интервалу \[12-14\]. Определите количество хостов внутренней сети, представленных в датасете.
+Подготовка данных:
 
-    ``` sql
-    SELECT COUNT(DISTINCT src) AS zad1
-    FROM `utenkova1mdataset`
-    WHERE src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%';
-    ```
+```{r}
+library(duckdb)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
 
-    ![](images/clipboard-2338500356.png)
+con <- dbConnect(duckdb::duckdb())
 
-2.  Определите суммарный объем исходящего трафика
+df <- dbGetQuery(con,
+    "SELECT *
+    FROM read_parquet('tm_data.pqt')
+    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
+    AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%' AND src NOT LIKE '13.37.84.125');")
 
-    ``` sql
-    SELECT SUM(bytes) as zad2
-    FROM `utenkova1mdataset`
-    WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') and (dst NOT REGEXP '(^1[2-4]\.)');
-    ```
+dftime <- df %>%
+      select(timestamp, src, dst, bytes) %>%
+      mutate(time = hour(as_datetime(timestamp/1000)))
 
-    ![](images/clipboard-3237993218.png)
+dfdatetime <- df %>%
+      select(timestamp, src, dst, bytes) %>%
+      mutate(time = as_datetime(timestamp/1000))
+```
 
-    ```{r}
-    sprintf("%f GB", 6726396441/1024/1024/1024)
-    ```
+```{r}
+bytraffic <- dftime %>%
+      group_by(time) %>%
+      summarise(traffic = sum(bytes), count = n()) %>% 
+      arrange(desc(traffic))
 
-3.  Определите суммарный объем входящего трафика
+bycount <- bytraffic %>% arrange(desc(count))
 
-    ``` sql
-    SELECT SUM(bytes) as zad3
-    FROM `utenkova1mdataset`
-    WHERE (src NOT REGEXP '(^1[2-4]\.)') AND (dst REGEXP '(^1[2-4]\.)');
-    ```
+avgPerHost <- bytraffic %>% mutate(avg = traffic/count) %>% arrange(desc(avg))
 
-    ![](images/clipboard-3867971624.png)
+res <- dftime %>%
+      filter(time < 16) %>% 
+      group_by(src) %>%
+      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
+      #mutate(avg = traffic / num) %>%
+      arrange(desc(traffic))
+      #top_n(10)
 
-    ```{r}
-    sprintf("%f GB", 12459379906/1024/1024/1024)
-    ```
+res7 <- dftime %>%
+      filter(time == 7) %>% 
+      group_by(src) %>%
+      summarise(traffic = sum(bytes)) %>% #, num = n()) %>%
+      #mutate(avg = traffic / num) %>%
+      arrange(desc(traffic))
+      #top_n(10)
+
+res1255 <- dfdatetime %>%
+      filter(src == '12.55.77.96')
+
+```
+
+Анализ данных:
+
+```{r}
+ggplot(data = bytraffic, aes(x = time, y = traffic)) + 
+  geom_line() +
+  geom_point()
+```
+```{r}
+ggplot(data = bytraffic, aes(x = time, y = count)) + 
+  geom_line() +
+  geom_point()
+```
+Так как с 16 до 24 объем трафика и количество запросов стабильно высоки с сравнении с другими часами, этот интервал является рабочими часами.
+
+```{r}
+ggplot(head(res, 10), aes(traffic, src)) + geom_col()
+```
+
+Заметно, что в нерабочие часы трафик наибольший у 12.55.77.96
+
+```{r}
+ggplot(data = avgPerHost, aes(x = time, y = avg)) +
+  geom_line() + 
+  geom_point()
+```
+Так как в 7 часов был значительный всплеск среднего трафика на хост, что является аномалией, скорее всего именно в этот период происходила утечка данных.
+
+```{r}
+ggplot(head(res7, 10), aes(traffic, src)) + geom_col()
+```
+Заметно, что в 7 часов трафик наибольший у 12.55.77.96.
+
+```{r}
+ggplot(data = res1255, aes(x = time, y = bytes)) + 
+  geom_line() +
+  geom_point()
+```
+Каждый день у 12.55.77.96 был всплеск трафика в 7 утра. Таким образом, именно у этой системы был настроен cron для экспорта содержимого внутренний wiki системы.
+
+### Задание 3
+
+Еще один нарушитель собирает содержимое электронной почты и отправляет в Интернет используя порт, который обычно используется для другого типа трафика. Атакующий пересылает большое количество информации используя этот порт, которое нехарактерно для других хостов, использующих этот номер порта. Определите IP этой системы. Известно, что ее IP адрес отличается от нарушителей из предыдущих задач.
+
+Подготовка данных:
+
+```{r}
+library(duckdb)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+
+con <- dbConnect(duckdb::duckdb())
+
+df <- dbGetQuery(con,
+  "SELECT *
+  FROM read_parquet('tm_data.pqt')
+  WHERE (src LIKE '12.%' OR src LIKE '13.%' OR src LIKE '14.%') 
+  AND (dst NOT LIKE '12.%' AND dst NOT LIKE '13.%' AND dst NOT LIKE '14.%') 
+  AND (src NOT LIKE '13.37.84.125' AND src NOT LIKE '12.55.77.96');")
+
+```
+
+```{r}
+dfport <- df %>%
+  select(src, port, bytes)
+``` 
+
+```{r}
+dfportstat <- dfport %>%
+  group_by(port) %>%
+  summarise(med = median(bytes), max = max(bytes), razn = max - med) %>%
+  arrange(desc(razn))
+
+print(dfportstat)
+```
+```{r}
+ggplot(data = dfportstat, aes(x = port, y = razn)) + geom_col()
+```
+Скорее всего подозрительным портом является один из первой десятки тех, у которых нибольшая разница между медианой и максимальным значением переданного трафика за раз.
+
+#### Порт 37
+
+```{r}
+p = 37
+dfportN <- dfport %>%
+  filter(port == p) %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
+  arrange(desc(avg))
+
+ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
+```
+```{r}
+ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
+```
+Для прота 37 (топ-1) замечена аномальная активность на src = 14.31.207.42, но разница со вторым местом src = 14.42.60.94 минимальна.
+
+#### Порт 39
+
+```{r}
+p = 39
+dfportN <- dfport %>%
+  filter(port == p) %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
+  arrange(desc(avg))
+
+ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
+```
+```{r}
+ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
+```
+Для порта 39 (топ-2) замечена аномальная активность: src = 13.36.102.77.
+
+#### Порт 105
+
+```{r}
+p = 105
+dfportN <- dfport %>%
+  filter(port == p) %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
+  arrange(desc(avg))
+
+ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
+```
+```{r}
+ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
+```
+Для порта 105 (топ-3) замечена аномальная активность: src = 14.31.107.42.
+
+#### Порт 40
+
+```{r}
+p = 40
+dfportN <- dfport %>%
+  filter(port == p) %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
+  arrange(desc(avg))
+
+ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
+```
+```{r}
+ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
+```
+Для порта 40 (топ-4) замечена аномальная активность: src = 13.41.85.73.
+
+
+#### Порт 75
+
+```{r}
+p = 75
+dfportN <- dfport %>%
+  filter(port == p) %>%
+  group_by(src) %>%
+  summarise(traffic = sum(bytes), count = n(), avg = traffic/count, med = median(bytes)) %>%
+  arrange(desc(avg))
+
+ggplot(head(dfportN, 10), aes(avg, src)) + geom_col()
+```
+```{r}
+ggplot(head(dfportN, 10), aes(med, src)) + geom_col()
+```
+Для порта 75 (топ-5) не замечена аномальная активность.
+
+#### Результат
+
+Наибольшая разница в трафике, который был направлен через один порт, получена на порту 105.
+Ответ на задание: 14.31.107.42
 
 ## Оценка результатов
 
-Задача выполнена при помощи Yandex Query, удалось изучить возможности технологии Yandex Query для анализа структурированных наборов данных, получить навыки построения аналитического пайплайна для анализа данных.
+Задача выполнена при помощи DuckDB и Apache Arrow, удалось познакомится с функционалом Arrow и изучить возможности СУБД DuckDB для анализа больших данных.
 
 ## Вывод
 
-В данной работе успешно удалось изучить возможности технологии Yandex Query для анализа структурированных наборов данных, получить навыки построения аналитического пайплайна для анализа данных с помощью сервисов Yandex Cloud, закрепить практические навыки использования SQL для анализа данных сетевойактивности в сегментированной корпоративной сети.
+В данной работе успешно удалось изучить возможности DuckDB и Apache Arrow для анализа данных сетевой активности в сегментированной корпоративной сети.
