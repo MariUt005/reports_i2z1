@@ -79,6 +79,7 @@ print("Создан дашборд")
 ![](images/clipboard-3886844670.png)
 
 Ссылка на дашборд: https://datalens.yandex/7srytif3o9ysu
+https://datalens.yandex.cloud/7srytif3o9ysu-analiz-trafika-utenkova
 
 ## Оценка результатов
 
